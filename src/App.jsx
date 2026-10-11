@@ -1,5 +1,17 @@
+import { useEffect, useMemo, useState } from 'react'
+import {
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+} from 'recharts'
 
-import { useEffect, useState } from 'react'
 import './App.css'
 
 const STORAGE_KEY = 'pockettrack-expenses'
@@ -31,9 +43,45 @@ function loadExpenses() {
   }
 }
 
+const CategoryTooltip = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+
+  const item = payload[0];
+  const color = item.payload?.fill || item.color || '#35649A';
+
+  const formattedAmount = new Intl.NumberFormat('en-PH', {
+    style: 'currency',
+    currency: 'PHP',
+  }).format(Number(item.value) || 0);
+
+  return (
+    <div
+      style={{
+        backgroundColor: color,
+        border: `1px solid ${color}`,
+        borderRadius: '12px',
+        padding: '10px 14px',
+        boxShadow: '0 4px 12px rgba(38, 59, 83, 0.15)',
+        color: '#ffffff',
+        fontSize: '14px',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {item.name}: {formattedAmount}
+    </div>
+  );
+};
+
 function App() {
+  const today = new Date().toLocaleDateString('en-CA')
+
   const [isFormOpen, setIsFormOpen] = useState(false)
   const [expenses, setExpenses] = useState(loadExpenses)
+  const [dateFilter, setDateFilter] = useState('today')
+  const [selectedDate, setSelectedDate] = useState(today)
+  const [startDate, setStartDate] = useState(today)
+  const [endDate, setEndDate] = useState(today)
 
   useEffect(() => {
     try {
@@ -42,8 +90,6 @@ function App() {
       console.error('Could not save PocketTrack expenses:', error)
     }
   }, [expenses])
-
-  const today = new Date().toLocaleDateString('en-CA')
 
   const formatCurrency = (amount) =>
     new Intl.NumberFormat('en-PH', {
@@ -54,6 +100,73 @@ function App() {
   const todaysTotal = expenses
     .filter((expense) => expense.date === today)
     .reduce((total, expense) => total + expense.amount, 0)
+
+
+  const filteredExpenses = useMemo(() => {
+    const now = new Date()
+    let fromDate
+    let toDate
+
+    if (dateFilter === 'today') {
+      fromDate = today
+      toDate = today
+    } else if (dateFilter === 'day') {
+      fromDate = selectedDate
+      toDate = selectedDate
+    } else if (dateFilter === 'week') {
+      const day = now.getDay()
+      const mondayOffset = day === 0 ? -6 : 1 - day
+      const monday = new Date(now)
+      monday.setDate(now.getDate() + mondayOffset)
+
+      const sunday = new Date(monday)
+      sunday.setDate(monday.getDate() + 6)
+
+      fromDate = monday.toLocaleDateString('en-CA')
+      toDate = sunday.toLocaleDateString('en-CA')
+    } else if (dateFilter === 'month') {
+      fromDate = `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, '0')}-01`
+
+      toDate = `${now.getFullYear()}-${String(
+        now.getMonth() + 1
+      ).padStart(2, '0')}-${String(
+        new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate()
+      ).padStart(2, '0')}`
+    } else {
+      fromDate = startDate
+      toDate = endDate
+    }
+
+    if (fromDate > toDate) return []
+
+    return expenses.filter(
+      (expense) =>
+        expense.date >= fromDate &&
+        expense.date <= toDate
+    )
+  }, [expenses, dateFilter, selectedDate, startDate, endDate])
+
+  const filteredTotal = filteredExpenses.reduce(
+    (total, expense) => total + expense.amount,
+    0
+  )
+
+  const categoryData = Object.values(
+    filteredExpenses.reduce((categories, expense) => {
+      if (!categories[expense.category]) {
+        categories[expense.category] = {
+          name: expense.category,
+          value: 0,
+        }
+      }
+
+      categories[expense.category].value += expense.amount
+      return categories
+    }, {})
+  )
+
 
   function handleAddExpense(event) {
     event.preventDefault()
@@ -136,6 +249,176 @@ function App() {
             ₱
           </div>
         </section>
+
+
+        <section className="insights-section">
+          <div className="section-heading">
+            <div>
+              <h2>Expense Insights</h2>
+              <p>Explore your spending over time</p>
+            </div>
+          </div>
+
+          <div className="date-filter-controls">
+            <label htmlFor="dateFilter">View expenses</label>
+            <select
+              id="dateFilter"
+              value={dateFilter}
+              onChange={(event) => setDateFilter(event.target.value)}
+            >
+              <option value="today">Today</option>
+              <option value="day">Specific Date</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+              <option value="custom">Custom Range</option>
+            </select>
+
+            {dateFilter === 'day' && (
+              <input
+                type="date"
+                value={selectedDate}
+                onChange={(event) => setSelectedDate(event.target.value)}
+                aria-label="Choose a date"
+              />
+            )}
+
+            {dateFilter === 'custom' && (
+              <div className="custom-date-range">
+                <label>
+                  From
+                  <input
+                    type="date"
+                    value={startDate}
+                    max={endDate}
+                    onChange={(event) => setStartDate(event.target.value)}
+                  />
+                </label>
+
+                <label>
+                  To
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={startDate}
+                    onChange={(event) => setEndDate(event.target.value)}
+                  />
+                </label>
+              </div>
+            )}
+          </div>
+
+          <div className="insights-summary">
+            <div>
+              <p className="summary-label">TOTAL SPENT</p>
+              <h2>{formatCurrency(filteredTotal)}</h2>
+            </div>
+            <div>
+              <p className="summary-label">TRANSACTIONS</p>
+              <h2>{filteredExpenses.length}</h2>
+            </div>
+          </div>
+
+
+          <div className="category-chart-section">
+            <div className="category-chart-heading">
+              <h3>Spending by Category</h3>
+              <p>See where your money goes</p>
+            </div>
+
+            {categoryData.length > 0 && filteredTotal > 0 ? (
+              <div className="category-chart-content">
+                <div className="category-donut-chart">
+                  <ResponsiveContainer width="100%" height={280}>
+                    <PieChart>
+                      <Pie
+                        data={categoryData}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={72}
+                        outerRadius={105}
+                        paddingAngle={3}
+                      >
+                        {categoryData.map((entry, index) => {
+                          const colors = [
+                            '#35649A',
+                            '#5BA7A7',
+                            '#F0B35A',
+                            '#8B78C6',
+                            '#E17B77',
+                          ]
+
+                          return (
+                            <Cell
+                              key={entry.name}
+                              fill={colors[index % colors.length]}
+                            />
+                          )
+                        })}
+                      </Pie>
+                      
+                      <Tooltip
+                        content={<CategoryTooltip />}
+                        cursor={false}
+                        allowEscapeViewBox={{ x: true, y: true }}
+                        position={{ x: 20, y: 20 }}
+                      />
+
+                    </PieChart>
+                  </ResponsiveContainer>
+
+                  <div className="category-chart-center">
+                    <span>Total Spent</span>
+                    <strong>{formatCurrency(filteredTotal)}</strong>
+                  </div>
+                </div>
+
+                <div className="category-legend">
+                  {categoryData.map((category, index) => {
+                    const colors = [
+                      '#35649A',
+                      '#5BA7A7',
+                      '#F0B35A',
+                      '#8B78C6',
+                      '#E17B77',
+                    ]
+
+                    const percentage =
+                      filteredTotal > 0
+                        ? (category.value / filteredTotal) * 100
+                        : 0
+
+                    return (
+                      <div className="category-legend-item" key={category.name}>
+                        <span
+                          className="category-legend-dot"
+                          style={{
+                            backgroundColor:
+                              colors[index % colors.length],
+                          }}
+                        />
+
+                        <div className="category-legend-details">
+                          <span>{category.name}</span>
+                          <strong>{formatCurrency(category.value)}</strong>
+                          <small>{percentage.toFixed(1)}% of spending</small>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="category-chart-empty">
+                <p>No expenses for this period yet.</p>
+                <span>Add an expense to see your spending breakdown.</span>
+              </div>
+            )}
+          </div>
+
+        </section>
+
 
         <section className="expenses-section">
           <div className="section-heading">
